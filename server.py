@@ -5,11 +5,16 @@ pregunta a cada proveedor por saldo y gasto. Las claves se leen del entorno
 (o de un fichero .env junto a este script) y nunca salen hacia el navegador.
 
     python server.py            # http://127.0.0.1:8787
+
+En local escucha solo en 127.0.0.1 y no pide contraseña. Desplegado (cuando el
+alojamiento define PORT, o con HOST=0.0.0.0) exige DASHBOARD_PASSWORD.
 """
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import hmac
 import json
 import os
 import threading
@@ -211,6 +216,26 @@ def resumen(forzar: bool = False) -> dict:
 # ------------------------------------------------------------------------ http
 
 
+def anfitrion() -> str:
+    """Abierto a la red solo si lo pide el alojamiento (PORT) o HOST."""
+    return os.environ.get("HOST") or ("0.0.0.0" if os.environ.get("PORT") else "127.0.0.1")
+
+
+def autorizado(cabecera: str | None) -> bool:
+    """En local no hay contraseña. Abierto a la red, usuario y contraseña siempre."""
+    if anfitrion() in ("127.0.0.1", "localhost"):
+        return True
+    clave = os.environ.get("DASHBOARD_PASSWORD", "")
+    if not clave or not cabecera or not cabecera.startswith("Basic "):
+        return False
+    try:
+        usuario, _, dada = base64.b64decode(cabecera[6:]).decode("utf-8").partition(":")
+    except Exception:
+        return False
+    esperado = os.environ.get("DASHBOARD_USUARIO", "fernando")
+    return hmac.compare_digest(usuario.encode(), esperado.encode()) and hmac.compare_digest(dada.encode(), clave.encode())
+
+
 class Manejador(BaseHTTPRequestHandler):
     def _enviar(self, codigo: int, tipo: str, cuerpo: bytes) -> None:
         self.send_response(codigo)
@@ -222,6 +247,14 @@ class Manejador(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         ruta = urllib.parse.urlsplit(self.path)
+        if ruta.path == "/salud":  # para la comprobación del alojamiento; no enseña datos
+            return self._enviar(200, "text/plain; charset=utf-8", b"ok")
+        if not autorizado(self.headers.get("Authorization")):
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="Credito de APIs"')
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if ruta.path == "/":
             self._enviar(200, "text/html; charset=utf-8", (RAIZ / "static" / "index.html").read_bytes())
         elif ruta.path == "/api/resumen":
@@ -237,10 +270,12 @@ class Manejador(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     cargar_env()
-    puerto = int(os.environ.get("PUERTO", "8787"))
-    # Solo escucha en local: la página enseña saldos y no lleva contraseña.
-    servidor = ThreadingHTTPServer(("127.0.0.1", puerto), Manejador)
-    print(f"Dashboard de crédito de APIs en http://127.0.0.1:{puerto}")
+    puerto = int(os.environ.get("PORT") or os.environ.get("PUERTO") or "8787")
+    host = anfitrion()
+    if host not in ("127.0.0.1", "localhost") and not os.environ.get("DASHBOARD_PASSWORD"):
+        raise SystemExit("Falta DASHBOARD_PASSWORD: no se abre a la red una página con saldos sin contraseña.")
+    servidor = ThreadingHTTPServer((host, puerto), Manejador)
+    print(f"Dashboard de crédito de APIs en http://{host}:{puerto}", flush=True)
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:
