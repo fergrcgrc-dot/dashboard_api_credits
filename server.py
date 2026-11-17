@@ -31,6 +31,35 @@ DIAS = 30
 CACHE_SEGUNDOS = 60
 
 
+def dir_datos() -> Path:
+    """Carpeta persistente: DATA_DIR, el volumen de Railway o ./data."""
+    return Path(os.environ.get("DATA_DIR") or os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or RAIZ / "data")
+
+
+_cerrojo_saldos = threading.Lock()
+
+
+def leer_saldos() -> dict:
+    try:
+        return json.loads((dir_datos() / "saldos.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def guardar_saldo(id_: str, saldo: float, base_dia: float) -> None:
+    """Anota el saldo de hoy. base_dia es lo que OpenAI ya llevaba facturado hoy, para no restarlo después."""
+    ahora = dt.datetime.now(dt.timezone.utc)
+    with _cerrojo_saldos:
+        datos = leer_saldos()
+        datos[id_] = {"saldo": round(saldo, 4), "fecha": ahora.date().isoformat(),
+                      "anotado": ahora.isoformat(timespec="seconds"), "base_dia": round(base_dia, 6)}
+        carpeta = dir_datos()
+        carpeta.mkdir(parents=True, exist_ok=True)
+        tmp = carpeta / "saldos.json.tmp"
+        tmp.write_text(json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(carpeta / "saldos.json")
+
+
 def cargar_env() -> None:
     """Lee .env sin pisar lo que ya venga del entorno."""
     ruta = RAIZ / ".env"
@@ -143,22 +172,33 @@ def fal(clave: str) -> dict:
     return p
 
 
-def openai(clave: str) -> dict:
-    p = base("openai", "OpenAI", "https://platform.openai.com/settings/organization/billing/overview")
+def costes_openai(clave: str, desde: str) -> list[tuple[str, str, float]]:
+    """Filas (día, concepto, usd) desde el día indicado (YYYY-MM-DD, UTC) hasta hoy."""
     cab = {"Authorization": f"Bearer {clave}"}
-    inicio = int(dt.datetime.fromisoformat(ultimos_dias()[0] + "T00:00:00+00:00").timestamp())
+    inicio = int(dt.datetime.fromisoformat(desde + "T00:00:00+00:00").timestamp())
+    dias = (dt.datetime.now(dt.timezone.utc).date() - dt.date.fromisoformat(desde)).days + 1
     consulta = urllib.parse.urlencode(
-        {"start_time": inicio, "bucket_width": "1d", "limit": DIAS + 1, "group_by": "line_item"}
+        {"start_time": inicio, "bucket_width": "1d", "limit": max(1, min(dias, 180)), "group_by": "line_item"}
     )
     costes = pedir(f"https://api.openai.com/v1/organization/costs?{consulta}", cab)
-    por_dia: dict[str, float] = {}
-    por_linea: dict[str, float] = {}
+    filas = []
     for cubo in costes.get("data", []):
         dia = dt.datetime.fromtimestamp(cubo["start_time"], dt.timezone.utc).date().isoformat()
         for r in cubo.get("results", []):
-            usd = float((r.get("amount") or {}).get("value") or 0)
-            por_dia[dia] = por_dia.get(dia, 0.0) + usd
-            linea = r.get("line_item") or "sin detalle"
+            filas.append((dia, r.get("line_item") or "sin detalle", float((r.get("amount") or {}).get("value") or 0)))
+    return filas
+
+
+def openai(clave: str) -> dict:
+    p = base("openai", "OpenAI", "https://platform.openai.com/settings/organization/billing/overview")
+    manual = leer_saldos().get("openai")
+    primero = ultimos_dias()[0]
+    filas = costes_openai(clave, min(primero, manual["fecha"]) if manual else primero)
+    por_dia: dict[str, float] = {}
+    por_linea: dict[str, float] = {}
+    for dia, linea, usd in filas:
+        por_dia[dia] = por_dia.get(dia, 0.0) + usd
+        if dia >= primero:
             por_linea[linea] = por_linea.get(linea, 0.0) + usd
     p["serie"] = serie_completa(por_dia)
     p["gasto_30d"] = round(sum(x["usd"] for x in p["serie"]), 4)
@@ -166,7 +206,23 @@ def openai(clave: str) -> dict:
         {"nombre": k, "cantidad": None, "unidad": None, "usd": round(v, 4)}
         for k, v in sorted(por_linea.items(), key=lambda kv: -kv[1])
     ]
-    p["notas"].append("OpenAI no publica el saldo de prepago por API: solo se ve en su panel.")
+    if manual:
+        gastado = max(0.0, sum(v for d, v in por_dia.items() if d >= manual["fecha"]) - manual.get("base_dia", 0.0))
+        p["saldo"] = round(manual["saldo"] - gastado, 4)
+        p["manual"] = {"anotado": manual["saldo"], "fecha": manual["fecha"], "gastado_desde": round(gastado, 4)}
+    else:
+        p["notas"].append("OpenAI no publica el saldo de prepago por API: anótalo a mano y desde ahí se resta el consumo.")
+    return p
+
+
+def anthropic() -> dict:
+    p = base("anthropic", "Anthropic", "https://console.anthropic.com/settings/billing")
+    p["estado"] = "manual"
+    manual = leer_saldos().get("anthropic")
+    if manual:
+        p["saldo"] = manual["saldo"]
+        p["manual"] = {"anotado": manual["saldo"], "fecha": manual["fecha"], "gastado_desde": 0.0}
+    p["notas"].append("Anthropic no ofrece API de consumo para esta cuenta: el saldo no se resta solo, hay que actualizarlo a mano.")
     return p
 
 
@@ -203,6 +259,7 @@ def resumen(forzar: bool = False) -> dict:
             return _cache["datos"]
         with ThreadPoolExecutor(max_workers=len(PROVEEDORES)) as ex:
             proveedores = list(ex.map(lambda a: consultar(*a), PROVEEDORES))
+        proveedores.append(anthropic())
         datos = {
             "actualizado": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
             "dias": DIAS,
@@ -263,6 +320,50 @@ class Manejador(BaseHTTPRequestHandler):
             self._enviar(200, "application/json; charset=utf-8", cuerpo)
         else:
             self._enviar(404, "text/plain; charset=utf-8", b"No existe")
+
+    def do_POST(self) -> None:  # noqa: N802
+        ruta = urllib.parse.urlsplit(self.path)
+        if not autorizado(self.headers.get("Authorization")):
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="Credito de APIs"')
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if ruta.path != "/api/saldo":
+            return self._json(404, {"error": "No existe"})
+        origen = self.headers.get("Origin")  # un POST desde otra web no debe poder cambiar los saldos
+        if origen and urllib.parse.urlsplit(origen).netloc != self.headers.get("Host"):
+            return self._json(403, {"error": "Origen no permitido"})
+        if "application/json" not in (self.headers.get("Content-Type") or ""):
+            return self._json(415, {"error": "Se esperaba JSON"})
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            if not 0 < n <= 1000:
+                raise ValueError
+            datos = json.loads(self.rfile.read(n).decode("utf-8"))
+            id_ = datos["proveedor"]
+            saldo = float(datos["saldo"])
+            if id_ not in ("openai", "anthropic") or not 0 <= saldo < 1e7:
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            return self._json(400, {"error": "Datos no válidos"})
+        base_dia = 0.0
+        clave = os.environ.get("OPENAI_ADMIN_KEY", "").strip()
+        if id_ == "openai" and clave:  # lo ya facturado hoy no cuenta como consumo posterior
+            try:
+                hoy = dt.datetime.now(dt.timezone.utc).date().isoformat()
+                base_dia = sum(u for d, _, u in costes_openai(clave, hoy) if d == hoy)
+            except Exception:
+                pass
+        try:
+            guardar_saldo(id_, saldo, base_dia)
+        except OSError as e:
+            return self._json(500, {"error": f"No se pudo guardar en disco: {e.strerror or e}"})
+        _cache["cuando"] = 0.0
+        self._json(200, {"ok": True})
+
+    def _json(self, codigo: int, datos: dict) -> None:
+        self._enviar(codigo, "application/json; charset=utf-8", json.dumps(datos, ensure_ascii=False).encode("utf-8"))
 
     def log_message(self, *args) -> None:  # silencio en consola
         pass

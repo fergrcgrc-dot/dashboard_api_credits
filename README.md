@@ -50,3 +50,11 @@ Un proveedor sin clave o que no responde aparece marcado como tal y no afecta a 
 ## Añadir un proveedor
 
 Escribe una función en `server.py` que devuelva el diccionario de `base()` relleno y añádela a `PROVEEDORES` con el nombre de su variable de entorno. La página lo pinta sin tocar nada más.
+
+## Saldos de OpenAI y Anthropic (se guardan en el servidor)
+
+OpenAI no publica su saldo y Anthropic no tiene API de consumo para cuentas individuales, así que el saldo se anota a mano en su tarjeta.
+
+- **OpenAI:** desde que anotas el saldo, la página le resta automáticamente el consumo que devuelve la API de costes. Lo ya facturado ese mismo día no se resta. El coste de OpenAI tarda unas horas en reflejarse.
+- **Anthropic:** no se puede restar solo; se actualiza a mano.
+- Los saldos se guardan en `saldos.json`, dentro de `DATA_DIR`, del volumen de Railway (`RAILWAY_VOLUME_MOUNT_PATH`) o de `./data`, por este orden. **En Railway hay que añadir un volumen** (servicio → Volumes → mount path `/data`); sin él los saldos se pierden en cada despliegue.
