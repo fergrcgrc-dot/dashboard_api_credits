@@ -1,56 +1,33 @@
 ---
-version: "alpha"
-name: "Crédito de APIs · Barely-There"
-description: "Panel local de saldo y gasto de APIs. Basado en la plantilla The Barely-There UI de designmd.app."
+version: "beta"
+name: "Crédito de APIs · Degradados"
+description: "Panel de saldo y gasto de APIs, tema oscuro con degradado cian, magenta y naranja."
 colors:
-  primary: "#ffffff"
-  secondary: "#000000"
-  danger: "#b42318"
-  primary-dark: "#0b0b0b"
-  danger-dark: "#ff8a7a"
-typography:
-  display: { fontFamily: system-ui, fontSize: 3.5rem, fontWeight: 200 }
-  h2: { fontFamily: system-ui, fontSize: 1.35rem, fontWeight: 300 }
-  body-md: { fontFamily: system-ui, fontSize: 15px, fontWeight: 400 }
-rounded: { none: 0px }
+  fondo: "#0b0d2b"
+  superficie: "rgba(255,255,255,0.045)"
+  tinta: "#f5f5f9"
+  acento-degradado: "linear-gradient(90deg, #38b6f0, #9b2e8a 55%, #f97316)"
+  openai: "#2b9fe0"
+  openrouter: "#e0620f"
+  fal: "#c4479f"
+  anthropic: "#7a83ee"
+  error: "#f0646a"
+rounded: { card: 16px, pill: 999px }
 ---
 ## Overview
-Se abre para leer tres cifras y cerrarlo. La interfaz se aparta: lo único con peso visual son los números.
+Una sola pantalla para saber cuánto saldo queda, cuánto se gasta al día y cuántos días de autonomía hay.
 Todo el estilo está en el `<style>` de `static/index.html`.
 
 ## Colors
-Tres colores y nada más: fondo, tinta y alerta.
-- La jerarquía se hace con la opacidad de la tinta: 100% cifras y títulos, 78% texto, 56% rótulos y notas.
-- Líneas al 12% y al 32% de la tinta.
-- Alerta (`#b42318`, `#ff8a7a` en oscuro) solo para saldo bajo y proveedores caídos, siempre con texto que lo explique.
-- Los gráficos van en tinta, sin color de serie.
-- Tema oscuro automático con `prefers-color-scheme`.
-
-## Typography
-- Una sola familia: la del sistema.
-- Cifras grandes en peso 200 con interletraje negativo; títulos en 300; texto en 400.
-- Toda cifra con `tabular-nums` (`.num`).
-
-## Layout
-- Ancho máximo 1080px. Mucho aire entre secciones (72 a 88px).
-- Cada proveedor: columna fija de 260px con saldo y notas, y a la derecha gasto y desglose. Una columna por debajo de 820px.
-
-## Elevation & Depth
-Sin sombras y sin degradados. Las secciones se separan con una línea de 1px.
-
-## Shapes
-Esquinas rectas en todo.
+- Fondo azul marino con dos brillos radiales (azul arriba a la derecha, violeta abajo a la izquierda).
+- Tarjetas translúcidas con borde de 1px al 11% de blanco.
+- Cada plataforma tiene un color fijo (cian, naranja, magenta, índigo) validado para fondo oscuro y daltonismo. El color nunca es la única señal: siempre hay leyenda y nombre.
+- El degradado cian, magenta y naranja solo se usa en el botón principal, la pestaña activa y la palabra "gasto" del título.
+- Errores en `#f0646a`, siempre con texto que explique el motivo.
 
 ## Components
-- Cifra de cabecera: rótulo, número, una línea de contexto que dice de qué proveedores sale.
-- Medidor: pista de 2px con el tramo consumido en tinta y los dos valores escritos debajo.
-- Gráfico de barras: una serie, barras con 2px de separación, tres marcas de fecha, detalle al pasar el ratón.
-- Tabla de desglose: la barra fina de cada fila es proporcional a la fila más cara.
-- Estado vacío: una frase entre dos líneas, sin iconos.
-
-## Do's and Don'ts
-- No tarjetas con fondo ni bordes redondeados.
-- No iconos ni emoji.
-- No un color por proveedor.
-- No cifras sin decir a qué proveedores corresponden: si falta un dato, se escribe cuál.
-- No botones rellenos: las acciones son texto subrayado.
+- KPIs: saldo total, gasto a 7 y 30 días, autonomía estimada.
+- Gráfico de gasto acumulado por plataforma (30 días) con cursor y detalle al pasar el ratón.
+- Reparto del gasto en 7 o 30 días.
+- Tarjeta por plataforma: saldo, gasto, autonomía y gasto diario. OpenAI y Anthropic llevan campo de saldo a mano (se guarda en el navegador).
+- Tabla de desglose por modelo o concepto.
