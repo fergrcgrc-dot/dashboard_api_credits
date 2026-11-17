@@ -26,7 +26,7 @@ h2{font-size:13px;margin:0 0 2px}.hint{font-size:12px;color:var(--t3);margin-bot
 table{width:100%;border-collapse:collapse;font-size:13px}th{font-size:11px;color:var(--t3);text-align:left;font-weight:600;padding:6px 8px;border-bottom:1px solid var(--grid)}td{padding:7px 8px;border-bottom:1px solid var(--grid);font-variant-numeric:tabular-nums}th.r,td.r{text-align:right}
 .neg{color:var(--crit)}.pos{color:var(--ok)}
 .form{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--grid)}
-.form label{font-size:12px;color:var(--t3)}.form input{width:90px;font:inherit;font-size:12px;padding:5px 7px;border-radius:6px;border:1px solid var(--bd);background:var(--bg);color:var(--t1)}
+.form label{font-size:12px;color:var(--t3)}.form input{width:120px;font:inherit;font-size:12px;padding:5px 7px;border-radius:6px;border:1px solid var(--bd);background:var(--bg);color:var(--t1)}
 .bar{height:6px;border-radius:3px;background:var(--grid);overflow:hidden;margin-top:10px}.bar i{display:block;height:100%}
 .err{color:var(--crit);font-size:12px;margin-bottom:6px}.pill{font-size:11px;font-weight:600;border-radius:10px;padding:2px 8px;background:var(--grid);color:var(--t2)}
 footer{font-size:12px;color:var(--t3);margin-top:14px}
@@ -44,7 +44,7 @@ footer{font-size:12px;color:var(--t3);margin-top:14px}
 </div>
 <div class="grid c2" id="plats"></div>
 <div class="card"><h2>Desglose del gasto</h2><div class="hint">Por modelo o concepto, últimos 30 días (de más a menos)</div><div id="moves"></div></div>
-<footer>Los datos vienen directamente de cada plataforma al abrir la página o pulsar Actualizar. OpenAI no publica su saldo y Anthropic no tiene API de saldo: se escriben a mano y quedan guardados en este navegador.</footer>
+<footer>Los datos vienen directamente de cada plataforma al abrir la página o pulsar Actualizar. OpenAI no publica su saldo: se anota a mano y la página le resta el consumo desde ese momento. Anthropic no tiene API de consumo: su saldo se actualiza a mano. Ambos se guardan en el servidor.</footer>
 </div>
 <script>
 const P=[{k:"openai",n:"OpenAI"},{k:"openrouter",n:"OpenRouter"},{k:"fal",n:"fal.ai"},{k:"anthropic",n:"Anthropic"}];
@@ -57,8 +57,7 @@ const dnum=i=>Date.parse(day(i)+"T00:00:00Z")/864e5;
 const ago=i=>{if(!i)return"sin datos";const m=Math.floor((Date.now()-Date.parse(i))/6e4);return m<2?"ahora mismo":m<60?`hace ${m} min`:m<1440?`hace ${Math.floor(m/60)} h`:`hace ${Math.floor(m/1440)} días`};
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let R=null,range=30;
-const MANUAL={openai:"saldo_openai",anthropic:"saldo_anthropic"};
-const manual=k=>{const v=parseFloat(localStorage.getItem(MANUAL[k]));return isNaN(v)?null:v};
+const MANUAL={openai:1,anthropic:1};
 
 /* ---- datos por plataforma ---- */
 function model(){
@@ -66,10 +65,10 @@ function model(){
   return P.map(pl=>{
     const p=by[pl.k]||null,serie=p&&p.serie?p.serie:null;
     const sum=n=>serie?serie.slice(-n).reduce((s,x)=>s+x.usd,0):null;
-    const s30=serie?sum(30):null,saldo=MANUAL[pl.k]?manual(pl.k):(p?p.saldo:null);
+    const s30=serie?sum(30):null,saldo=p?p.saldo:null;
     const burn=s30!=null?s30/30:null;
     return {...pl,p,serie,s7:sum(7),s30,saldo,burn,run:burn>0&&saldo!=null?saldo/burn:null,
-      estado:p?p.estado:(MANUAL[pl.k]?"manual":"sin_datos"),error:p?p.error:null,notas:p?p.notas:[],desglose:p?p.desglose:[]};
+      manual:p&&p.manual||null,estado:p?p.estado:"sin_datos",error:p?p.error:null,notas:p?p.notas:[],desglose:p?p.desglose:[]};
   });
 }
 const tot=(M,f)=>M.reduce((s,m)=>s+(f(m)||0),0);
@@ -96,8 +95,8 @@ function render(){
 
   // tarjetas
   $("plats").innerHTML=M.map(m=>{
-    const form=MANUAL[m.k]?`<div class="form"><label>Saldo actual</label><input type="number" step="0.01" id="in-${m.k}" value="${m.saldo==null?"":m.saldo}" placeholder="0.00"><button class="btn2" data-s="${m.k}">Guardar</button></div>`:"";
-    const info=m.k=="openai"?"Saldo a mano (OpenAI no lo publica)":m.k=="anthropic"?"Saldo a mano (sin API de saldo)":m.estado=="ok"?"Saldo vía API":"";
+    const form=MANUAL[m.k]?`<div class="form"><label>Saldo actual</label><input type="number" step="0.01" id="in-${m.k}" placeholder="${m.manual?"Nuevo saldo":"0.00"}"><button class="btn2" data-s="${m.k}">Guardar</button></div>`:"";
+    const info=m.k=="openai"?(m.manual?`Anotado ${usd(m.manual.anotado)} el ${fd(m.manual.fecha)} · consumido desde entonces ${usd(m.manual.gastado_desde)}`:"Anota tu saldo y se irá restando el consumo"):m.k=="anthropic"?(m.manual?`Anotado el ${fd(m.manual.fecha)} (no se resta solo)`:"Anota tu saldo (sin API de consumo)"):m.estado=="ok"?"Saldo vía API":"";
     const note=m.estado=="sin_clave"||m.estado=="error"?`<div class="note" style="color:var(--crit)">${esc(m.error)}</div>`:(m.notas||[]).map(n=>`<div class="note">${esc(n)}</div>`).join("");
     return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><div class="lbl"><span class="dot" style="background:${col(m.k)}"></span>${m.n}</div><span class="pill">${m.estado=="ok"?ago(R&&R.actualizado):m.estado=="manual"?"manual":"sin datos"}</span></div>
      <div class="val">${usd(m.saldo)}</div><div class="note">${info}</div>
@@ -105,7 +104,10 @@ function render(){
      ${note}<div class="cw" id="b-${m.k}" style="margin-top:12px"></div>${form}</div>`}).join("");
   M.forEach(m=>{const el=$("b-"+m.k);if(!m.serie||!m.serie.some(x=>x.usd>0)){el.innerHTML='<div class="empty">Sin gasto diario que mostrar</div>';return}
     lineChart(el,[{k:m.k,n:"Gasto del día",pts:m.serie.map(x=>({date:x.dia,v:x.usd}))}],86)});
-  document.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>{const v=parseFloat($("in-"+b.dataset.s).value);if(isNaN(v))return;localStorage.setItem(MANUAL[b.dataset.s],v);render()});
+  document.querySelectorAll("[data-s]").forEach(b=>b.onclick=async()=>{const v=parseFloat($("in-"+b.dataset.s).value);if(isNaN(v)||v<0)return;b.disabled=true;
+    try{const r=await fetch("/api/saldo",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proveedor:b.dataset.s,saldo:v})});
+      if(!r.ok){let e="";try{e=(await r.json()).error}catch(_){}throw new Error(e||"HTTP "+r.status)}
+      await load(true)}catch(e){$("errs").innerHTML=`<div class="err">No se pudo guardar: ${esc(e.message)}</div>`;b.disabled=false}});
 
   // desglose
   const rows=[];M.forEach(m=>m.desglose.forEach(d=>{if(d.usd>0)rows.push({m,...d})}));rows.sort((a,b)=>b.usd-a.usd);
