@@ -1,6 +1,6 @@
 # Dashboard de crédito de APIs
 
-Una página local que responde a tres preguntas: cuánto saldo queda, cuánto se ha gastado en los últimos 30 días y qué proveedor se va a quedar sin crédito antes.
+Una página que responde a tres preguntas: cuánto saldo queda, cuánto se ha gastado en los últimos 30 días y qué proveedor se va a quedar sin crédito antes.
 
 Proveedores: OpenRouter, fal.ai y OpenAI.
 
@@ -45,7 +45,7 @@ Un proveedor sin clave o que no responde aparece marcado como tal y no afecta a 
 - `server.py` sirve la página y `/api/resumen`, que consulta a los tres proveedores en paralelo y guarda la respuesta 60 segundos. El botón Actualizar salta esa caché.
 - Las claves se quedan en el servidor: el navegador solo recibe cifras.
 - En local escucha solo en `127.0.0.1`, sin contraseña. Desplegado (cuando existe `PORT`) escucha en todas las interfaces y exige usuario y contraseña.
-- `static/index.html` es toda la interfaz. Las reglas visuales están en `DESIGN.md`.
+- `static/index.html` es toda la interfaz (tema oscuro con degradados). Las reglas visuales están en `DESIGN.md`. OpenAI no publica su saldo y Anthropic no tiene API de saldo: se escriben a mano en la propia página y se guardan en el navegador.
 
 ## Añadir un proveedor
 
